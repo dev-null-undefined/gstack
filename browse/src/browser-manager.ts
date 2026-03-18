@@ -17,6 +17,27 @@
 
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator } from 'playwright';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
+import { existsSync } from 'fs';
+import { execSync } from 'child_process';
+
+/** Resolve Chromium executable for non-FHS systems like NixOS */
+function resolveChromiumExecutable(): string | undefined {
+  // Explicit override takes precedence
+  const envPath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+  if (envPath) return envPath;
+
+  // Auto-detect NixOS (Playwright's bundled Chromium won't work — missing shared libs)
+  if (existsSync('/etc/NIXOS')) {
+    try {
+      const path = execSync('which chromium 2>/dev/null || which chromium-browser 2>/dev/null', { encoding: 'utf8' }).trim();
+      return path || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  return undefined;
+}
 
 export interface RefEntry {
   locator: Locator;
@@ -48,7 +69,10 @@ export class BrowserManager {
   private dialogPromptText: string | null = null;
 
   async launch() {
-    this.browser = await chromium.launch({ headless: true });
+    this.browser = await chromium.launch({
+      headless: true,
+      executablePath: resolveChromiumExecutable(),
+    });
 
     // Chromium crash → exit with clear message
     this.browser.on('disconnected', () => {

@@ -9,7 +9,7 @@ BROWSE_BIN="$GSTACK_DIR/browse/dist/browse"
 ensure_playwright_browser() {
   (
     cd "$GSTACK_DIR"
-    bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
+    bun --eval 'import { chromium } from "playwright"; const ep = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH; const browser = await chromium.launch({ executablePath: ep || undefined }); await browser.close();'
   ) >/dev/null 2>&1
 }
 
@@ -44,7 +44,24 @@ if [ ! -x "$BROWSE_BIN" ]; then
 fi
 
 # 2. Ensure Playwright's Chromium is available
+# NixOS: Playwright's bundled Chromium won't work (dynamically linked against FHS paths).
+# Use the system chromium instead.
+if [ -f /etc/NIXOS ]; then
+  SYSTEM_CHROMIUM="$(which chromium 2>/dev/null || which chromium-browser 2>/dev/null || true)"
+  if [ -z "$SYSTEM_CHROMIUM" ]; then
+    echo "gstack setup failed: NixOS detected but no system chromium found." >&2
+    echo "Add 'chromium' to environment.systemPackages in your NixOS configuration." >&2
+    exit 1
+  fi
+  export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$SYSTEM_CHROMIUM"
+fi
+
 if ! ensure_playwright_browser; then
+  if [ -f /etc/NIXOS ]; then
+    echo "gstack setup failed: system chromium could not be launched via Playwright" >&2
+    echo "  Tried: $PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH" >&2
+    exit 1
+  fi
   echo "Installing Playwright Chromium..."
   (
     cd "$GSTACK_DIR"
